@@ -1,16 +1,19 @@
 package rag
 
 import (
-	"context" // ✅ Add missing import
+	"context"
 	"log"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/sashabaranov/go-openai"
 )
 
 var openaiClient *openai.Client
 
 func InitOpenAI() {
+	_ = godotenv.Load()
+
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		log.Fatal("OPENAI_API_KEY is not set")
@@ -21,8 +24,8 @@ func InitOpenAI() {
 func GenerateResponse(contextText, query string) string {
 	resp, err := openaiClient.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 		Model: "gpt-3.5-turbo",
-		Messages: []openai.ChatCompletionMessage{ // ✅ Fix struct name
-			{Role: "system", Content: "You are a helpful assistant answering questions based on provided context."},
+		Messages: []openai.ChatCompletionMessage{
+			{Role: "system", Content: "Please give me answer about my query in native spoken English, based on the context, and only answer."},
 			{Role: "user", Content: "Context:\n" + contextText + "\n\nQuery: " + query},
 		},
 	})

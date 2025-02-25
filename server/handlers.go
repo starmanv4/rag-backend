@@ -3,7 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"sync"
 
@@ -11,17 +11,32 @@ import (
 )
 
 var (
-	docStorage = make(map[string]string) // In-memory storage for uploaded documents
-	mu         sync.Mutex
+	docStorage       = make(map[string]string)
+	mu               sync.Mutex
+	lastUploadedFile string
 )
 
 type QueryRequest struct {
-	Filename string `json:"filename"`
-	Query    string `json:"query"`
+	Query string `json:"query"`
 }
 
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(10 << 20) // Max file size: 10MB
+	fmt.Println("Upload received...")
+
+	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		http.Error(w, "Unable to parse form", http.StatusBadRequest)
+		return
+	}
 
 	file, handler, err := r.FormFile("file")
 	if err != nil {
@@ -30,21 +45,38 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	bytes, err := ioutil.ReadAll(file)
+	bytes, err := io.ReadAll(file)
 	if err != nil {
 		http.Error(w, "Error reading file", http.StatusInternalServerError)
 		return
 	}
 
-	// Store file in memory
 	mu.Lock()
 	docStorage[handler.Filename] = string(bytes)
+	lastUploadedFile = handler.Filename
 	mu.Unlock()
 
-	fmt.Fprintf(w, "File uploaded successfully: %s", handler.Filename)
+	fmt.Printf("File uploaded successfully: %s\n", handler.Filename)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message":  "File uploaded successfully",
+		"filename": handler.Filename,
+	})
 }
 
 func QueryHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Query received...")
+
+	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	var req QueryRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -52,22 +84,26 @@ func QueryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve document content
 	mu.Lock()
-	content, exists := docStorage[req.Filename]
+	filename := lastUploadedFile
+	content, exists := docStorage[filename]
 	mu.Unlock()
-	if !exists {
-		http.Error(w, "File not found", http.StatusNotFound)
+
+	if filename == "" || !exists {
+		http.Error(w, "No file uploaded yet", http.StatusNotFound)
 		return
 	}
 
-	// Retrieve relevant context
+	fmt.Printf("Processing query for file: %s\n", filename)
+
 	context := rag.RetrieveContext(content, req.Query)
+	fmt.Println("Retrieved context:", context)
 
-	// Generate AI response
 	response := rag.GenerateResponse(context, req.Query)
+	fmt.Println("Generated response:", response)
 
-	// Return response as JSON
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"response": response})
+	json.NewEncoder(w).Encode(map[string]string{
+		"response": response,
+	})
 }

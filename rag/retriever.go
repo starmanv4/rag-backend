@@ -1,22 +1,42 @@
 package rag
 
 import (
+	"sort"
 	"strings"
 )
 
-// Simple keyword-based retrieval
 func RetrieveContext(document, query string) string {
 	lines := strings.Split(document, "\n")
-	var relevant []string
+	queryWords := strings.Fields(strings.ToLower(query))
+	relevance := make(map[string]int)
 
 	for _, line := range lines {
-		if strings.Contains(strings.ToLower(line), strings.ToLower(query)) {
-			relevant = append(relevant, line)
+		lowerLine := strings.ToLower(line)
+		count := 0
+
+		for _, word := range queryWords {
+			if strings.Contains(lowerLine, word) {
+				count++
+			}
+		}
+
+		if count > 0 {
+			relevance[line] = count
 		}
 	}
 
-	if len(relevant) == 0 {
+	if len(relevance) == 0 {
 		return "No relevant information found."
 	}
-	return strings.Join(relevant, "\n")
+
+	sortedLines := make([]string, 0, len(relevance))
+	for line := range relevance {
+		sortedLines = append(sortedLines, line)
+	}
+
+	sort.Slice(sortedLines, func(i, j int) bool {
+		return relevance[sortedLines[i]] > relevance[sortedLines[j]]
+	})
+
+	return strings.Join(sortedLines, "\n")
 }
